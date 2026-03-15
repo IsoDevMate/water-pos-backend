@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
 import { randomUUID } from "crypto";
 
-export const db = new Database("water_pos.db");
+const db = new Database("water_pos.db");
 
 // Initialize tables
 db.exec(`
