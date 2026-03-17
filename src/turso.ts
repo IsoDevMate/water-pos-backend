@@ -1,3 +1,4 @@
+import logger from "./logger";
 import { createClient } from "@libsql/client";
 import { getPendingChanges, markChangesSynced } from "./db";
 
@@ -27,7 +28,7 @@ export async function initTursoSchema() {
     createdAt TEXT NOT NULL,
     updatedAt TEXT NOT NULL
   )`);
-  console.log("Turso schema ready");
+  logger.info("Turso schema ready");
 }
 
 // Push all unsynced local changes to Turso
@@ -88,6 +89,6 @@ export async function flushToTurso(): Promise<number> {
 
   const ids = changes.map((c) => c.id);
   markChangesSynced(ids);
-  console.log(`Synced ${ids.length} change(s) to Turso`);
+  logger.info({ count: ids.length }, "Synced changes to Turso");
   return ids.length;
 }

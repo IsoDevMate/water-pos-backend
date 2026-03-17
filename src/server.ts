@@ -1,6 +1,7 @@
 import "dotenv/config";
-import express, { Request, Response } from "express";
+import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
+import logger from "./logger";
 import { initTursoSchema, flushToTurso } from "./turso";
 import {
   createBusiness,
@@ -8,6 +9,7 @@ import {
   createOrder,
   getBusinessById,
   getBusinessByOwnerPhone,
+  getBusinessByOwnerEmail,
   updateBusinessBottlePrice,
   updateBusinessPayment,
   findCustomerByPhone,
@@ -21,8 +23,18 @@ import {
   markChangesSynced,
   computeLoyalty,
   getDailySales,
+  getMonthlySales,
+  getChannelBreakdown,
+  getRevenueStats,
   getTopCustomers,
   getInactiveCustomers,
+  addStock,
+  adjustStock,
+  getStockSummary,
+  addExpense,
+  getExpenses,
+  getExpenseSummary,
+  getProfitSummary,
   getPendingNotifications,
   markNotificationSent,
   queueNotification,
@@ -31,44 +43,110 @@ import {
   updatePaymentStatus,
   getPaymentByOrderId,
   getPaymentByOrderIdForBusiness,
+  createOtp,
+  verifyOtp,
   Order,
 } from "./db";
 import { stkPushForBusiness } from "./providers";
+import { sendOtpEmail, signToken, requireAuth, AuthRequest, OTP_ENABLED } from "./auth";
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
+// ── Request logger ─────────────────────────────────────────
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const start = Date.now();
+  res.on("finish", () => {
+    const ms = Date.now() - start;
+    const level = res.statusCode >= 500 ? "error" : res.statusCode >= 400 ? "warn" : "info";
+    logger[level]({ method: req.method, path: req.path, status: res.statusCode, ms });
+  });
+  next();
+});
+
+// ── Global error handler ───────────────────────────────────
+app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+  logger.error({ err: err.message, stack: err.stack }, "Unhandled error");
+  res.status(500).json({ error: "Internal server error" });
+});
+
 app.get("/health", (_req, res) => res.json({ status: "ok" }));
 
-function getBusinessIdFromReq(req: Request): string | null {
-  const header = req.header("x-business-id");
-  if (header) return header;
-  const q = (req.query as any)?.businessId;
-  if (typeof q === "string" && q) return q;
-  const b = (req.body as any)?.businessId;
-  if (typeof b === "string" && b) return b;
-  return null;
-}
+// ── Auth ───────────────────────────────────────────────────
 
+app.post("/api/auth/send-otp", async (req: Request, res: Response) => {
+  const { email } = req.body as { email: string };
+  if (!email) return res.status(400).json({ error: "email is required" });
+
+  const business = getBusinessByOwnerEmail(email);
+  if (!business) return res.status(404).json({ error: "No business found with this email" });
+
+  // OTP disabled — issue token directly
+  if (!OTP_ENABLED) {
+    const token = signToken({ businessId: business.id, ownerPhone: business.ownerPhone, ownerEmail: email });
+    return res.json({ ok: true, otpDisabled: true, token, business });
+  }
+
+  const code = Math.floor(100000 + Math.random() * 900000).toString();
+  createOtp(email, code);
+
+  try {
+    await sendOtpEmail(email, code);
+    res.json({ ok: true, message: "OTP sent to your email" });
+  } catch (e: any) {
+    res.status(502).json({ error: "Failed to send email: " + e.message });
+  }
+});
+
+app.post("/api/auth/verify-otp", (req: Request, res: Response) => {
+  if (!OTP_ENABLED) return res.status(503).json({ error: "OTP login is not enabled" });
+
+  const { email, code } = req.body as { email: string; code: string };
+  if (!email || !code) return res.status(400).json({ error: "email and code are required" });
+
+  const valid = verifyOtp(email, code);
+  if (!valid) return res.status(401).json({ error: "Invalid or expired OTP" });
+
+  const business = getBusinessByOwnerEmail(email)!;
+  const token = signToken({ businessId: business.id, ownerPhone: business.ownerPhone, ownerEmail: email });
+  res.json({ token, business });
+});
+
+// Reads businessId from JWT — all protected routes use this
 function requireBusinessId(req: Request, res: Response): string | null {
-  const businessId = getBusinessIdFromReq(req);
-  if (!businessId) {
-    res.status(400).json({
-      error:
-        "businessId is required (send as header x-business-id, query ?businessId=, or JSON body businessId)",
-    });
+  const authReq = req as AuthRequest;
+  if (!authReq.business?.businessId) {
+    res.status(401).json({ error: "Unauthorized — please log in" });
     return null;
   }
-  return businessId;
+  return authReq.business.businessId;
 }
 
+// Apply JWT auth to all /api routes except public ones
+app.use("/api", (req: Request, res: Response, next) => {
+  const pub = [
+    { method: "POST", path: "/api/auth/send-otp" },
+    { method: "POST", path: "/api/auth/verify-otp" },
+    { method: "POST", path: "/api/businesses/register" },
+    { method: "GET",  path: "/api/businesses/" },
+    { method: "POST", path: "/api/payments/callback" },
+    { method: "GET",  path: "/api/webhook/whatsapp" },
+    { method: "POST", path: "/api/webhook/whatsapp" },
+  ];
+  const isPublic = pub.some(
+    (r) => req.method === r.method && req.path.startsWith(r.path.replace("/api", ""))
+  );
+  if (isPublic) return next();
+  requireAuth(req as AuthRequest, res, next);
+});
 // ── Businesses (tenants) ────────────────────────────────────
 
 app.post("/api/businesses/register", (req: Request, res: Response) => {
-  const { name, ownerPhone, bottlePrice } = req.body as {
+  const { name, ownerPhone, ownerEmail, bottlePrice } = req.body as {
     name: string;
     ownerPhone: string;
+    ownerEmail?: string;
     bottlePrice?: number;
   };
   if (!name || !ownerPhone) {
@@ -77,7 +155,10 @@ app.post("/api/businesses/register", (req: Request, res: Response) => {
   if (getBusinessByOwnerPhone(ownerPhone)) {
     return res.status(409).json({ error: "Business with this ownerPhone already exists" });
   }
-  const business = createBusiness(name, ownerPhone, bottlePrice ?? 50);
+  if (ownerEmail && getBusinessByOwnerEmail(ownerEmail)) {
+    return res.status(409).json({ error: "Business with this email already exists" });
+  }
+  const business = createBusiness(name, ownerPhone, bottlePrice ?? 50, ownerEmail);
   res.status(201).json({ business });
 });
 
@@ -274,15 +355,72 @@ app.get("/api/analytics/summary", (_req: Request, res: Response) => {
   if (!businessId) return;
   const daily = getDailySales(businessId, 7);
   const topCustomers = getTopCustomers(businessId, 5);
-  const totalBottles = daily.reduce((s, d) => s + d.bottles, 0);
-  const totalOrders = daily.reduce((s, d) => s + d.orders, 0);
-  res.json({ daily, topCustomers, totalBottles, totalOrders });
+  const revenue = getRevenueStats(businessId);
+  const channels = getChannelBreakdown(businessId, 30);
+  res.json({ daily, topCustomers, revenue, channels });
+});
+
+app.get("/api/analytics/monthly", (_req: Request, res: Response) => {
+  const businessId = requireBusinessId(_req, res);
+  if (!businessId) return;
+  res.json({ monthly: getMonthlySales(businessId, 6) });
 });
 
 app.get("/api/analytics/inactive", (_req: Request, res: Response) => {
   const businessId = requireBusinessId(_req, res);
   if (!businessId) return;
   res.json({ customers: getInactiveCustomers(businessId, 30) });
+});
+
+// ── Inventory ─────────────────────────────────────────────
+
+app.get("/api/inventory", (_req: Request, res: Response) => {
+  const businessId = requireBusinessId(_req, res);
+  if (!businessId) return;
+  res.json(getStockSummary(businessId));
+});
+
+app.post("/api/inventory/stock-in", (req: Request, res: Response) => {
+  const { quantity, note } = req.body as { quantity: number; note?: string };
+  if (!quantity || quantity <= 0) return res.status(400).json({ error: "quantity must be > 0" });
+  const businessId = requireBusinessId(req, res);
+  if (!businessId) return;
+  res.status(201).json({ entry: addStock(businessId, quantity, note) });
+});
+
+app.post("/api/inventory/adjust", (req: Request, res: Response) => {
+  const { quantity, note } = req.body as { quantity: number; note?: string };
+  if (quantity === undefined) return res.status(400).json({ error: "quantity required (can be negative)" });
+  const businessId = requireBusinessId(req, res);
+  if (!businessId) return;
+  res.status(201).json({ entry: adjustStock(businessId, quantity, note) });
+});
+
+// ── Bookkeeping (Expenses) ─────────────────────────────────
+
+app.get("/api/bookkeeping/expenses", (_req: Request, res: Response) => {
+  const businessId = requireBusinessId(_req, res);
+  if (!businessId) return;
+  const days = Number((_req.query as any).days) || 30;
+  res.json({ expenses: getExpenses(businessId, days) });
+});
+
+app.post("/api/bookkeeping/expenses", (req: Request, res: Response) => {
+  const { amount, category, note } = req.body as { amount: number; category: string; note?: string };
+  if (!amount || amount <= 0) return res.status(400).json({ error: "amount must be > 0" });
+  if (!category) return res.status(400).json({ error: "category is required" });
+  const businessId = requireBusinessId(req, res);
+  if (!businessId) return;
+  res.status(201).json({ expense: addExpense(businessId, amount, category, note) });
+});
+
+app.get("/api/bookkeeping/summary", (_req: Request, res: Response) => {
+  const businessId = requireBusinessId(_req, res);
+  if (!businessId) return;
+  const days = Number((_req.query as any).days) || 30;
+  const profit = getProfitSummary(businessId, days);
+  const byCategory = getExpenseSummary(businessId, days);
+  res.json({ ...profit, byCategory, days });
 });
 
 // ── Notifications ──────────────────────────────────────────
@@ -392,11 +530,9 @@ app.get("/api/payments/status/:orderId", (req: Request<{ orderId: string }>, res
 
 const PORT = process.env.PORT || 4000;
 app.listen(Number(PORT), "0.0.0.0", () => {
-  console.log(`Backend running on http://0.0.0.0:${PORT}`);
-  // Non-blocking — server stays up even if Turso is slow
+  logger.info(`Backend running on http://0.0.0.0:${PORT}`);
   initTursoSchema()
     .then(() => flushToTurso())
-    .catch((e) => console.error("Turso init error:", e.message));
-  // Auto-sync every 30s
-  setInterval(() => flushToTurso().catch((e) => console.error("Sync error:", e.message)), 30_000);
+    .catch((e) => logger.error({ err: e.message }, "Turso init error"));
+  setInterval(() => flushToTurso().catch((e) => logger.error({ err: e.message }, "Sync error")), 30_000);
 });

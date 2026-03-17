@@ -20,11 +20,20 @@ CREATE TABLE IF NOT EXISTS businesses (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   ownerPhone TEXT NOT NULL UNIQUE,
+  ownerEmail TEXT,
   bottlePrice INTEGER NOT NULL DEFAULT 50,
   paymentProvider TEXT,
   paymentConfig TEXT,
   createdAt TEXT NOT NULL,
   updatedAt TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS otp_codes (
+  id TEXT PRIMARY KEY,
+  email TEXT NOT NULL,
+  code TEXT NOT NULL,
+  expiresAt TEXT NOT NULL,
+  usedAt TEXT
 );
 
 CREATE TABLE IF NOT EXISTS orders (
@@ -41,9 +50,28 @@ CREATE TABLE IF NOT EXISTS orders (
   FOREIGN KEY(businessId) REFERENCES businesses(id)
 );
 
+CREATE TABLE IF NOT EXISTS stock_entries (
+  id TEXT PRIMARY KEY,
+  businessId TEXT NOT NULL,
+  type TEXT NOT NULL CHECK(type IN ('in', 'adjustment')),
+  quantity INTEGER NOT NULL,
+  note TEXT,
+  createdAt TEXT NOT NULL,
+  FOREIGN KEY(businessId) REFERENCES businesses(id)
+);
+
+CREATE TABLE IF NOT EXISTS expenses (
+  id TEXT PRIMARY KEY,
+  businessId TEXT NOT NULL,
+  amount INTEGER NOT NULL,
+  category TEXT NOT NULL,
+  note TEXT,
+  createdAt TEXT NOT NULL,
+  FOREIGN KEY(businessId) REFERENCES businesses(id)
+);
+
 CREATE TABLE IF NOT EXISTS pending_changes (
   id TEXT PRIMARY KEY,
-  entityType TEXT NOT NULL,
   entityId TEXT NOT NULL,
   operation TEXT NOT NULL,
   payload TEXT NOT NULL,
@@ -106,9 +134,10 @@ export type Business = {
   id: string;
   name: string;
   ownerPhone: string;
+  ownerEmail: string | null;
   bottlePrice: number;
   paymentProvider: string | null;
-  paymentConfig: string | null; // JSON string of provider credentials
+  paymentConfig: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -182,14 +211,14 @@ export function createCustomer(phone: string, businessId: string, name?: string)
 
 // ── Business CRUD ──────────────────────────────────────────
 
-export function createBusiness(name: string, ownerPhone: string, bottlePrice = 50): Business {
+export function createBusiness(name: string, ownerPhone: string, bottlePrice = 50, ownerEmail?: string): Business {
   const id = randomUUID();
   const now = nowIso();
   db.prepare(
-    `INSERT INTO businesses (id, name, ownerPhone, bottlePrice, createdAt, updatedAt)
-     VALUES (?, ?, ?, ?, ?, ?)`
-  ).run(id, name, ownerPhone, bottlePrice, now, now);
-  return { id, name, ownerPhone, bottlePrice, paymentProvider: null, paymentConfig: null, createdAt: now, updatedAt: now };
+    `INSERT INTO businesses (id, name, ownerPhone, ownerEmail, bottlePrice, createdAt, updatedAt)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  ).run(id, name, ownerPhone, ownerEmail ?? null, bottlePrice, now, now);
+  return { id, name, ownerPhone, ownerEmail: ownerEmail ?? null, bottlePrice, paymentProvider: null, paymentConfig: null, createdAt: now, updatedAt: now };
 }
 
 export function getBusinessById(id: string): Business | undefined {
@@ -290,16 +319,67 @@ export function markChangesSynced(ids: string[]): void {
 
 // ── Analytics ──────────────────────────────────────────────
 
-export function getDailySales(businessId: string, days = 7): { date: string; bottles: number; orders: number }[] {
-  return db.prepare<[string, number], { date: string; bottles: number; orders: number }>(`
+export function getDailySales(businessId: string, days = 7): { date: string; bottles: number; orders: number; revenue: number }[] {
+  const business = getBusinessById(businessId);
+  const price = business?.bottlePrice ?? 0;
+  const rows = db.prepare<[string, number], { date: string; bottles: number; orders: number }>(`
     SELECT date(createdAt) as date,
            SUM(bottles) as bottles,
            COUNT(*) as orders
     FROM orders
-    WHERE businessId = ? AND createdAt >= date('now', ? || ' days')
+    WHERE businessId = ? AND status = 'completed' AND createdAt >= date('now', ? || ' days')
     GROUP BY date(createdAt)
     ORDER BY date ASC
   `).all(businessId, -days);
+  return rows.map((r) => ({ ...r, revenue: r.bottles * price }));
+}
+
+export function getMonthlySales(businessId: string, months = 6): { month: string; bottles: number; orders: number; revenue: number }[] {
+  const business = getBusinessById(businessId);
+  const price = business?.bottlePrice ?? 0;
+  const rows = db.prepare<[string, number], { month: string; bottles: number; orders: number }>(`
+    SELECT strftime('%Y-%m', createdAt) as month,
+           SUM(bottles) as bottles,
+           COUNT(*) as orders
+    FROM orders
+    WHERE businessId = ? AND status = 'completed' AND createdAt >= date('now', ? || ' months')
+    GROUP BY month
+    ORDER BY month ASC
+  `).all(businessId, -months);
+  return rows.map((r) => ({ ...r, revenue: r.bottles * price }));
+}
+
+export function getChannelBreakdown(businessId: string, days = 30): { channel: string; bottles: number; orders: number; revenue: number }[] {
+  const business = getBusinessById(businessId);
+  const price = business?.bottlePrice ?? 0;
+  const rows = db.prepare<[string, number], { channel: string; bottles: number; orders: number }>(`
+    SELECT channel,
+           SUM(bottles) as bottles,
+           COUNT(*) as orders
+    FROM orders
+    WHERE businessId = ? AND status = 'completed' AND createdAt >= date('now', ? || ' days')
+    GROUP BY channel
+  `).all(businessId, -days);
+  return rows.map((r) => ({ ...r, revenue: r.bottles * price }));
+}
+
+export function getRevenueStats(businessId: string): {
+  todayRevenue: number; weekRevenue: number; monthRevenue: number;
+  todayBottles: number; weekBottles: number; monthBottles: number;
+} {
+  const price = getBusinessById(businessId)?.bottlePrice ?? 0;
+  const get = (days: number) => db.prepare<[string, number], { bottles: number }>(`
+    SELECT COALESCE(SUM(bottles), 0) as bottles FROM orders
+    WHERE businessId = ? AND status = 'completed' AND createdAt >= date('now', ? || ' days')
+  `).get(businessId, -days)!;
+  const today = get(1);
+  const week = get(7);
+  const month = get(30);
+  return {
+    todayBottles: today.bottles, todayRevenue: today.bottles * price,
+    weekBottles: week.bottles,   weekRevenue: week.bottles * price,
+    monthBottles: month.bottles, monthRevenue: month.bottles * price,
+  };
 }
 
 export function getTopCustomers(businessId: string, limit = 5): (Customer & { orderCount: number })[] {
@@ -322,6 +402,96 @@ export function getInactiveCustomers(businessId: string, days = 30): Customer[] 
       OR (SELECT COUNT(*) FROM orders o WHERE o.customerId = c.id) = 0
     )
   `).all(businessId, -days);
+}
+
+// ── Inventory ──────────────────────────────────────────────
+
+export type StockEntry = {
+  id: string;
+  businessId: string;
+  type: "in" | "adjustment";
+  quantity: number;
+  note: string | null;
+  createdAt: string;
+};
+
+export function addStock(businessId: string, quantity: number, note?: string): StockEntry {
+  const id = randomUUID();
+  const now = nowIso();
+  db.prepare(`INSERT INTO stock_entries (id, businessId, type, quantity, note, createdAt) VALUES (?, ?, 'in', ?, ?, ?)`)
+    .run(id, businessId, quantity, note ?? null, now);
+  return { id, businessId, type: "in", quantity, note: note ?? null, createdAt: now };
+}
+
+export function adjustStock(businessId: string, quantity: number, note?: string): StockEntry {
+  const id = randomUUID();
+  const now = nowIso();
+  db.prepare(`INSERT INTO stock_entries (id, businessId, type, quantity, note, createdAt) VALUES (?, ?, 'adjustment', ?, ?, ?)`)
+    .run(id, businessId, quantity, note ?? null, now);
+  return { id, businessId, type: "adjustment", quantity, note: note ?? null, createdAt: now };
+}
+
+export function getStockSummary(businessId: string): {
+  totalIn: number; totalSold: number; currentStock: number; recentEntries: StockEntry[];
+} {
+  const totalIn = (db.prepare<[string], { v: number }>(
+    `SELECT COALESCE(SUM(quantity), 0) as v FROM stock_entries WHERE businessId = ?`
+  ).get(businessId)!).v;
+
+  const totalSold = (db.prepare<[string], { v: number }>(
+    `SELECT COALESCE(SUM(bottles), 0) as v FROM orders WHERE businessId = ? AND status = 'completed'`
+  ).get(businessId)!).v;
+
+  const recentEntries = db.prepare<[string], StockEntry>(
+    `SELECT * FROM stock_entries WHERE businessId = ? ORDER BY createdAt DESC LIMIT 20`
+  ).all(businessId);
+
+  return { totalIn, totalSold, currentStock: totalIn - totalSold, recentEntries };
+}
+
+// ── Expenses (Bookkeeping) ─────────────────────────────────
+
+export type Expense = {
+  id: string;
+  businessId: string;
+  amount: number;
+  category: string;
+  note: string | null;
+  createdAt: string;
+};
+
+export function addExpense(businessId: string, amount: number, category: string, note?: string): Expense {
+  const id = randomUUID();
+  const now = nowIso();
+  db.prepare(`INSERT INTO expenses (id, businessId, amount, category, note, createdAt) VALUES (?, ?, ?, ?, ?, ?)`)
+    .run(id, businessId, amount, category, note ?? null, now);
+  return { id, businessId, amount, category, note: note ?? null, createdAt: now };
+}
+
+export function getExpenses(businessId: string, days = 30): Expense[] {
+  return db.prepare<[string, number], Expense>(
+    `SELECT * FROM expenses WHERE businessId = ? AND createdAt >= date('now', ? || ' days') ORDER BY createdAt DESC`
+  ).all(businessId, -days);
+}
+
+export function getExpenseSummary(businessId: string, days = 30): { category: string; total: number }[] {
+  return db.prepare<[string, number], { category: string; total: number }>(
+    `SELECT category, SUM(amount) as total FROM expenses WHERE businessId = ? AND createdAt >= date('now', ? || ' days') GROUP BY category ORDER BY total DESC`
+  ).all(businessId, -days);
+}
+
+export function getProfitSummary(businessId: string, days = 30): {
+  revenue: number; expenses: number; profit: number;
+} {
+  const price = getBusinessById(businessId)?.bottlePrice ?? 0;
+  const bottles = (db.prepare<[string, number], { v: number }>(
+    `SELECT COALESCE(SUM(bottles), 0) as v FROM orders WHERE businessId = ? AND status = 'completed' AND createdAt >= date('now', ? || ' days')`
+  ).get(businessId, -days)!).v;
+  const totalExpenses = (db.prepare<[string, number], { v: number }>(
+    `SELECT COALESCE(SUM(amount), 0) as v FROM expenses WHERE businessId = ? AND createdAt >= date('now', ? || ' days')`
+  ).get(businessId, -days)!).v;
+  const revenue = bottles * price;
+  return { revenue, expenses: totalExpenses, profit: revenue - totalExpenses };
 }
 
 // ── Notifications ──────────────────────────────────────────
@@ -403,6 +573,33 @@ export function updatePaymentStatus(
 
 export function getPaymentByOrderId(orderId: string): Payment | undefined {
   return db.prepare<[string], Payment>("SELECT * FROM payments WHERE orderId = ? ORDER BY createdAt DESC LIMIT 1").get(orderId);
+}
+
+export function getBusinessByOwnerEmail(email: string): Business | undefined {
+  return db.prepare<[string], Business>("SELECT * FROM businesses WHERE ownerEmail = ?").get(email);
+}
+
+export function updateBusinessEmail(businessId: string, email: string): void {
+  db.prepare("UPDATE businesses SET ownerEmail = ?, updatedAt = ? WHERE id = ?")
+    .run(email, nowIso(), businessId);
+}
+
+// ── OTP ────────────────────────────────────────────────────
+
+export function createOtp(email: string, code: string, ttlMinutes = 10): void {
+  const expiresAt = new Date(Date.now() + ttlMinutes * 60 * 1000).toISOString();
+  db.prepare(
+    `INSERT INTO otp_codes (id, email, code, expiresAt) VALUES (?, ?, ?, ?)`
+  ).run(randomUUID(), email, code, expiresAt);
+}
+
+export function verifyOtp(email: string, code: string): boolean {
+  const row = db.prepare<[string, string, string], { id: string }>(
+    `SELECT id FROM otp_codes WHERE email = ? AND code = ? AND usedAt IS NULL AND expiresAt > ? ORDER BY expiresAt DESC LIMIT 1`
+  ).get(email, code, nowIso());
+  if (!row) return false;
+  db.prepare("UPDATE otp_codes SET usedAt = ? WHERE id = ?").run(nowIso(), row.id);
+  return true;
 }
 
 export function getPaymentByOrderIdForBusiness(

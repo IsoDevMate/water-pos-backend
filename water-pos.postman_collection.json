@@ -5,10 +5,12 @@
   },
   "variable": [
     { "key": "base_url", "value": "http://localhost:4000" },
+    { "key": "token", "value": "" },
     { "key": "business_id", "value": "" },
     { "key": "customer_id", "value": "" },
     { "key": "order_id", "value": "" },
-    { "key": "qr_code_id", "value": "" }
+    { "key": "qr_code_id", "value": "" },
+    { "key": "notification_id", "value": "" }
   ],
   "item": [
     {
@@ -17,6 +19,35 @@
         {
           "name": "Health Check",
           "request": { "method": "GET", "url": "{{base_url}}/health" }
+        }
+      ]
+    },
+    {
+      "name": "Auth",
+      "item": [
+        {
+          "name": "Send OTP (requires OTP_ENABLED=true)",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/auth/send-otp",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"owner@example.com\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Verify OTP → get JWT (requires OTP_ENABLED=true)",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/auth/verify-otp",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"owner@example.com\",\n  \"code\": \"123456\"\n}"
+            }
+          }
         }
       ]
     },
@@ -31,7 +62,7 @@
             "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"name\": \"Mama Water\",\n  \"ownerPhone\": \"0700000000\",\n  \"bottlePrice\": 50\n}"
+              "raw": "{\n  \"name\": \"Mama Water\",\n  \"ownerPhone\": \"0700000000\",\n  \"ownerEmail\": \"owner@example.com\",\n  \"bottlePrice\": 50\n}"
             }
           }
         },
@@ -40,11 +71,29 @@
           "request": { "method": "GET", "url": "{{base_url}}/api/businesses/{{business_id}}" }
         },
         {
-          "name": "Update Business Payment Config",
+          "name": "Update Bottle Price",
+          "request": {
+            "method": "PATCH",
+            "url": "{{base_url}}/api/businesses/{{business_id}}/bottle-price",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bottlePrice\": 60\n}"
+            }
+          }
+        },
+        {
+          "name": "Update Payment Config",
           "request": {
             "method": "PATCH",
             "url": "{{base_url}}/api/businesses/{{business_id}}/payment",
-            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"provider\": \"daraja\",\n  \"config\": {\n    \"MPESA_ENV\": \"sandbox\",\n    \"MPESA_CONSUMER_KEY\": \"your_consumer_key\",\n    \"MPESA_CONSUMER_SECRET\": \"your_consumer_secret\",\n    \"MPESA_SHORTCODE\": \"174379\",\n    \"MPESA_PASSKEY\": \"your_passkey\",\n    \"MPESA_TYPE\": \"paybill\",\n    \"MPESA_CALLBACK_URL\": \"https://your-public-url/api/payments/callback\"\n  }\n}"
@@ -61,7 +110,7 @@
           "request": {
             "method": "GET",
             "url": "{{base_url}}/api/customers",
-            "header": [{ "key": "x-business-id", "value": "{{business_id}}" }]
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }]
           }
         },
         {
@@ -71,7 +120,7 @@
             "url": "{{base_url}}/api/customers/find-or-create",
             "header": [
               { "key": "Content-Type", "value": "application/json" },
-              { "key": "x-business-id", "value": "{{business_id}}" }
+              { "key": "Authorization", "value": "Bearer {{token}}" }
             ],
             "body": {
               "mode": "raw",
@@ -86,7 +135,7 @@
             "url": "{{base_url}}/api/customers/register",
             "header": [
               { "key": "Content-Type", "value": "application/json" },
-              { "key": "x-business-id", "value": "{{business_id}}" }
+              { "key": "Authorization", "value": "Bearer {{token}}" }
             ],
             "body": {
               "mode": "raw",
@@ -99,7 +148,7 @@
           "request": {
             "method": "GET",
             "url": "{{base_url}}/api/customers/{{customer_id}}",
-            "header": [{ "key": "x-business-id", "value": "{{business_id}}" }]
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }]
           }
         },
         {
@@ -107,7 +156,7 @@
           "request": {
             "method": "GET",
             "url": "{{base_url}}/api/customers/{{customer_id}}/orders",
-            "header": [{ "key": "x-business-id", "value": "{{business_id}}" }]
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }]
           }
         },
         {
@@ -115,7 +164,7 @@
           "request": {
             "method": "GET",
             "url": "{{base_url}}/api/customers/by-qr/{{qr_code_id}}",
-            "header": [{ "key": "x-business-id", "value": "{{business_id}}" }]
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }]
           }
         }
       ]
@@ -130,7 +179,7 @@
             "url": "{{base_url}}/api/orders",
             "header": [
               { "key": "Content-Type", "value": "application/json" },
-              { "key": "x-business-id", "value": "{{business_id}}" }
+              { "key": "Authorization", "value": "Bearer {{token}}" }
             ],
             "body": {
               "mode": "raw",
@@ -145,7 +194,7 @@
             "url": "{{base_url}}/api/orders",
             "header": [
               { "key": "Content-Type", "value": "application/json" },
-              { "key": "x-business-id", "value": "{{business_id}}" }
+              { "key": "Authorization", "value": "Bearer {{token}}" }
             ],
             "body": {
               "mode": "raw",
@@ -158,7 +207,15 @@
           "request": {
             "method": "GET",
             "url": "{{base_url}}/api/orders/pending",
-            "header": [{ "key": "x-business-id", "value": "{{business_id}}" }]
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }]
+          }
+        },
+        {
+          "name": "Get Customer Orders by Phone",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/orders/customer/0712345678",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }]
           }
         },
         {
@@ -168,17 +225,168 @@
             "url": "{{base_url}}/api/orders/{{order_id}}/status",
             "header": [
               { "key": "Content-Type", "value": "application/json" },
-              { "key": "x-business-id", "value": "{{business_id}}" }
+              { "key": "Authorization", "value": "Bearer {{token}}" }
             ],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"status\": \"confirmed\"\n}",
-              "options": {
-                "raw": {
-                  "info": "status options: pending | confirmed | delivered | completed"
-                }
-              }
+              "options": { "raw": { "info": "status: pending | confirmed | delivered | completed" } }
             }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Analytics",
+      "item": [
+        {
+          "name": "Summary (revenue, daily sales, top customers, channel breakdown)",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/analytics/summary",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }]
+          }
+        },
+        {
+          "name": "Monthly Sales (last 6 months)",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/analytics/monthly",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }]
+          }
+        },
+        {
+          "name": "Inactive Customers (30+ days)",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/analytics/inactive",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Inventory",
+      "item": [
+        {
+          "name": "Get Stock Summary",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/inventory",
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }]
+          }
+        },
+        {
+          "name": "Stock In (add bottles received)",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/inventory/stock-in",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"quantity\": 200,\n  \"note\": \"Delivery from supplier\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Stock Adjustment (loss, breakage, correction)",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/inventory/adjust",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"quantity\": -5,\n  \"note\": \"3 bottles broken, 2 given as samples\"\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Bookkeeping",
+      "item": [
+        {
+          "name": "Profit & Loss Summary",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/bookkeeping/summary?days=30",
+              "query": [{ "key": "days", "value": "30" }]
+            },
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }]
+          }
+        },
+        {
+          "name": "List Expenses",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/bookkeeping/expenses?days=30",
+              "query": [{ "key": "days", "value": "30" }]
+            },
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }]
+          }
+        },
+        {
+          "name": "Add Expense",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/bookkeeping/expenses",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"amount\": 2000,\n  \"category\": \"fuel\",\n  \"note\": \"Delivery motorbike fuel\"\n}",
+              "options": { "raw": { "info": "category examples: fuel, salary, rent, maintenance, supplies, other" } }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Campaigns",
+      "item": [
+        {
+          "name": "Broadcast Message",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/campaigns/broadcast",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{token}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"💧 Special offer: Buy 5 bottles get 1 free this week!\",\n  \"segment\": \"all\"\n}",
+              "options": { "raw": { "info": "segment: all | inactive | close_to_free" } }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Notifications (Loyalty Reminders)",
+      "item": [
+        {
+          "name": "Get Pending Notifications",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/notifications/pending"
+          }
+        },
+        {
+          "name": "Mark Notification Sent",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/notifications/{{notification_id}}/sent"
           }
         }
       ]
@@ -193,7 +401,7 @@
             "url": "{{base_url}}/api/webhook/whatsapp/simulate",
             "header": [
               { "key": "Content-Type", "value": "application/json" },
-              { "key": "x-business-id", "value": "{{business_id}}" }
+              { "key": "Authorization", "value": "Bearer {{token}}" }
             ],
             "body": {
               "mode": "raw",
@@ -233,13 +441,13 @@
       "name": "Payments",
       "item": [
         {
-          "name": "STK Push (business-scoped)",
+          "name": "STK Push",
           "request": {
             "method": "POST",
             "url": "{{base_url}}/api/payments/stk-push",
             "header": [
               { "key": "Content-Type", "value": "application/json" },
-              { "key": "x-business-id", "value": "{{business_id}}" }
+              { "key": "Authorization", "value": "Bearer {{token}}" }
             ],
             "body": {
               "mode": "raw",
@@ -248,11 +456,23 @@
           }
         },
         {
-          "name": "Payment Status (business-scoped)",
+          "name": "Payment Status",
           "request": {
             "method": "GET",
             "url": "{{base_url}}/api/payments/status/{{order_id}}",
-            "header": [{ "key": "x-business-id", "value": "{{business_id}}" }]
+            "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }]
+          }
+        },
+        {
+          "name": "M-Pesa Callback (simulated)",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/payments/callback",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"Body\": {\n    \"stkCallback\": {\n      \"CheckoutRequestID\": \"ws_CO_123456\",\n      \"ResultCode\": 0,\n      \"ResultDesc\": \"The service request is processed successfully.\",\n      \"CallbackMetadata\": {\n        \"Item\": [\n          { \"Name\": \"MpesaReceiptNumber\", \"Value\": \"QKA12BC3DE\" }\n        ]\n      }\n    }\n  }\n}"
+            }
           }
         }
       ]
@@ -264,16 +484,14 @@
           "name": "Get Pending Changes Queue",
           "request": {
             "method": "GET",
-            "url": "{{base_url}}/api/sync/pending",
-            "header": [{ "key": "x-business-id", "value": "{{business_id}}" }]
+            "url": "{{base_url}}/api/sync/pending"
           }
         },
         {
           "name": "Flush to Turso (manual trigger)",
           "request": {
             "method": "POST",
-            "url": "{{base_url}}/api/sync/flush",
-            "header": [{ "key": "x-business-id", "value": "{{business_id}}" }]
+            "url": "{{base_url}}/api/sync/flush"
           }
         },
         {
@@ -281,10 +499,7 @@
           "request": {
             "method": "POST",
             "url": "{{base_url}}/api/sync/ack",
-            "header": [
-              { "key": "Content-Type", "value": "application/json" },
-              { "key": "x-business-id", "value": "{{business_id}}" }
-            ],
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
             "body": {
               "mode": "raw",
               "raw": "{\n  \"ids\": [\"change-id-1\", \"change-id-2\"]\n}"
