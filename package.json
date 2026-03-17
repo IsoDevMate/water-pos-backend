@@ -3,19 +3,20 @@
   "version": "1.0.0",
   "description": "",
   "main": "dist/server.js",
-"scripts": {
-  "dev": "nodemon --watch src --ext ts --exec ts-node src/server.ts",
-  "build": "tsc",
-  "start": "node dist/server.js",
-  "test": "echo \"Error: no test specified\" && exit 1"
-},
+  "scripts": {
+    "dev": "node -r dotenv/config -r ts-node/register src/server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js"
+  },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@libsql/client": "^0.17.0",
     "better-sqlite3": "^12.8.0",
     "cors": "^2.8.6",
+    "dotenv": "^17.3.1",
     "express": "^5.2.1",
     "uuid": "^13.0.0"
   },

@@ -1,0 +1,297 @@
+{
+  "info": {
+    "name": "Water POS API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "http://localhost:4000" },
+    { "key": "business_id", "value": "" },
+    { "key": "customer_id", "value": "" },
+    { "key": "order_id", "value": "" },
+    { "key": "qr_code_id", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": { "method": "GET", "url": "{{base_url}}/health" }
+        }
+      ]
+    },
+    {
+      "name": "Businesses",
+      "item": [
+        {
+          "name": "Register Business",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/businesses/register",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Mama Water\",\n  \"ownerPhone\": \"0700000000\",\n  \"bottlePrice\": 50\n}"
+            }
+          }
+        },
+        {
+          "name": "Get Business by ID",
+          "request": { "method": "GET", "url": "{{base_url}}/api/businesses/{{business_id}}" }
+        },
+        {
+          "name": "Update Business Payment Config",
+          "request": {
+            "method": "PATCH",
+            "url": "{{base_url}}/api/businesses/{{business_id}}/payment",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"provider\": \"daraja\",\n  \"config\": {\n    \"MPESA_ENV\": \"sandbox\",\n    \"MPESA_CONSUMER_KEY\": \"your_consumer_key\",\n    \"MPESA_CONSUMER_SECRET\": \"your_consumer_secret\",\n    \"MPESA_SHORTCODE\": \"174379\",\n    \"MPESA_PASSKEY\": \"your_passkey\",\n    \"MPESA_TYPE\": \"paybill\",\n    \"MPESA_CALLBACK_URL\": \"https://your-public-url/api/payments/callback\"\n  }\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Customers",
+      "item": [
+        {
+          "name": "Get All Customers",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/customers",
+            "header": [{ "key": "x-business-id", "value": "{{business_id}}" }]
+          }
+        },
+        {
+          "name": "Find or Create by Phone",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/customers/find-or-create",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-business-id", "value": "{{business_id}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"0712345678\",\n  \"name\": \"Jane Wanjiku\",\n  \"autoCreate\": true\n}"
+            }
+          }
+        },
+        {
+          "name": "Register Customer",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/customers/register",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-business-id", "value": "{{business_id}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"0712345678\",\n  \"name\": \"Jane Wanjiku\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Get Customer by ID",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/customers/{{customer_id}}",
+            "header": [{ "key": "x-business-id", "value": "{{business_id}}" }]
+          }
+        },
+        {
+          "name": "Get Customer Orders",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/customers/{{customer_id}}/orders",
+            "header": [{ "key": "x-business-id", "value": "{{business_id}}" }]
+          }
+        },
+        {
+          "name": "Get Customer by QR Code",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/customers/by-qr/{{qr_code_id}}",
+            "header": [{ "key": "x-business-id", "value": "{{business_id}}" }]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Orders",
+      "item": [
+        {
+          "name": "Create Walk-in Order",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/orders",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-business-id", "value": "{{business_id}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"0712345678\",\n  \"name\": \"Jane Wanjiku\",\n  \"bottles\": 3,\n  \"channel\": \"walk_in\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Create Web Order",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/orders",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-business-id", "value": "{{business_id}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"0712345678\",\n  \"bottles\": 5,\n  \"channel\": \"web\"\n}"
+            }
+          }
+        },
+        {
+          "name": "Get Pending & Active Orders",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/orders/pending",
+            "header": [{ "key": "x-business-id", "value": "{{business_id}}" }]
+          }
+        },
+        {
+          "name": "Update Order Status",
+          "request": {
+            "method": "PATCH",
+            "url": "{{base_url}}/api/orders/{{order_id}}/status",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-business-id", "value": "{{business_id}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"confirmed\"\n}",
+              "options": {
+                "raw": {
+                  "info": "status options: pending | confirmed | delivered | completed"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "WhatsApp",
+      "item": [
+        {
+          "name": "Simulate Inbound WhatsApp Message",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/webhook/whatsapp/simulate",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-business-id", "value": "{{business_id}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phone\": \"0712345678\",\n  \"text\": \"order 5 bottles please\"\n}"
+            }
+          }
+        },
+        {
+          "name": "WhatsApp Webhook — Meta Verification (GET)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/api/webhook/whatsapp?hub.mode=subscribe&hub.verify_token=YOUR_TOKEN&hub.challenge=CHALLENGE_STRING",
+              "query": [
+                { "key": "hub.mode", "value": "subscribe" },
+                { "key": "hub.verify_token", "value": "YOUR_TOKEN" },
+                { "key": "hub.challenge", "value": "CHALLENGE_STRING" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "WhatsApp Webhook — Receive Message (POST)",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/webhook/whatsapp",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"object\": \"whatsapp_business_account\",\n  \"entry\": [{\n    \"changes\": [{\n      \"value\": {\n        \"messages\": [{\n          \"from\": \"254712345678\",\n          \"text\": { \"body\": \"5 bottles\" }\n        }]\n      }\n    }]\n  }]\n}"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Payments",
+      "item": [
+        {
+          "name": "STK Push (business-scoped)",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/payments/stk-push",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-business-id", "value": "{{business_id}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderId\": \"{{order_id}}\",\n  \"phone\": \"0712345678\",\n  \"amount\": 150\n}"
+            }
+          }
+        },
+        {
+          "name": "Payment Status (business-scoped)",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/payments/status/{{order_id}}",
+            "header": [{ "key": "x-business-id", "value": "{{business_id}}" }]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Sync (Turso)",
+      "item": [
+        {
+          "name": "Get Pending Changes Queue",
+          "request": {
+            "method": "GET",
+            "url": "{{base_url}}/api/sync/pending",
+            "header": [{ "key": "x-business-id", "value": "{{business_id}}" }]
+          }
+        },
+        {
+          "name": "Flush to Turso (manual trigger)",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/sync/flush",
+            "header": [{ "key": "x-business-id", "value": "{{business_id}}" }]
+          }
+        },
+        {
+          "name": "Acknowledge Synced Changes",
+          "request": {
+            "method": "POST",
+            "url": "{{base_url}}/api/sync/ack",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "x-business-id", "value": "{{business_id}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ids\": [\"change-id-1\", \"change-id-2\"]\n}"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
